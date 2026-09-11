@@ -1,0 +1,328 @@
+// bech32 — BIP 173 and BIP 350 over text and bytes the caller already
+// holds.
+//
+// Every body is a `todo()`.  The signatures are the design, and the
+// compiler checks them as claims; see the README for the stamp.
+//
+// WHAT IT IS.  `bech32_core` is the checksum — one integer, no buffer,
+// no allocation — and `bechbits` is the regrouping.  This module is
+// those two with a `Str` source and a destination attached, plus the
+// three rules that are about the WHOLE string and that a per-character
+// machine cannot see: the mixed-case refusal, the 90-character limit,
+// and where the separator is.
+//
+// WHY THE DECODE WRITES INTO THE CALLER'S BUFFER.  A hardware wallet
+// verifying an address it is about to display has the string and wants
+// the five-bit values, and it has neither a heap nor room for two
+// copies.  `decode_into` takes a `Cursor` the caller sized with
+// `decoded_len` and answers how many values it wrote, with the
+// human-readable part as a RANGE into the string the caller already
+// has — rather than as a `Str`, which would be an allocation for
+// something the caller can already see.
+//
+// THE SEPARATOR IS THE LAST `1`, not the first.  A human-readable part
+// may contain `1` — `1` is not in the data charset, so there is no
+// ambiguity once you scan from the right — and BIP 173's
+// `an83characterlonghumanreadablepartthatcontainsthenumber1and…`
+// vector exists to catch a decoder that scanned from the left.
+
+// Which of the two encodings a string uses.
+//
+// They differ in one constant and in nothing else.  Which one an
+// address should use is decided by its witness version rather than by
+// its prefix, and `bechsegwit.variant_for` is that rule.
+pub enum BechVariant
+    // BIP 173's original, checksum constant 1.  Segwit version 0, and
+    // every non-segwit use that predates BIP 350 — BOLT 11 invoices
+    // among them.
+    Bech32
+    // BIP 350's revision, checksum constant 0x2bc830a3.  Segwit
+    // versions 1 and above, which is every taproot address.
+    Bech32m
+
+// What went wrong reading a bech32 string, or sizing a buffer to write
+// one into.
+//
+// The variants are prefixed because a variant is constructed by name
+// across the whole assembly, and `MixedCase` and `BadChecksum` are
+// names every codec wants.
+pub enum BechError
+    // Upper-case and lower-case characters in the same string.
+    //
+    // `at` is the offset of the first character whose case disagrees
+    // with the first cased character in the string.  Either case ALONE
+    // is fine and means the same thing — an address may be printed in
+    // upper case for a QR code — but a mixture is refused, because the
+    // checksum is computed over one case and a mixture means a string
+    // that was assembled from two sources.
+    BechMixedCase(at: Int)
+    // No `1` anywhere in the string.
+    BechNoSeparator
+    // The separator is at offset 0, so the human-readable part is
+    // empty.  BIP 173 requires at least one character.
+    BechHrpEmpty
+    // The human-readable part is longer than 83 characters, which is
+    // the most the 90-character limit leaves room for.
+    BechHrpTooLong(len: Int)
+    // A character of the human-readable part outside `33 ..= 126`.
+    //
+    // `at` is the offset and `ch` is the byte.  Space and DEL are the
+    // two BIP 173 gives invalid vectors for.
+    BechHrpBadCharacter(at: Int, ch: Int)
+    // Fewer than six characters after the separator, so there is not
+    // even a checksum.
+    BechDataTooShort(len: Int)
+    // A character of the data part that is not in the charset.
+    //
+    // `at` is the offset and `ch` is the byte.  `1`, `b`, `i` and `o`
+    // are the four that are deliberately absent, and a string that
+    // contains one is usually a string somebody transcribed by eye.
+    BechBadCharacter(at: Int, ch: Int)
+    // The checksum does not match either variant's constant.
+    //
+    // `residue` is what the polymod came to, for a report that can say
+    // more than "wrong"; a value of 1 or 0x2bc830a3 here is impossible
+    // by construction, because those two are `BechWrongVariant`.
+    BechBadChecksum(residue: Int)
+    // The checksum is valid for the OTHER variant.
+    //
+    // A distinct refusal rather than a bad checksum, because the caller
+    // reaction differs: a valid bech32m string handed to a bech32
+    // reader is a taproot address in an application that has not been
+    // updated for BIP 350, and telling the user "bad address" would
+    // send them looking in the wrong place.
+    BechWrongVariant(found: Int, wanted: Int)
+    // The string is longer than the 90 characters BIP 173 allows.
+    //
+    // `encode_unlimited` and `decode_unlimited` are the pair that do
+    // not enforce it, for BOLT 11 and anything else that lifted the
+    // limit on purpose.
+    BechTooLong(len: Int)
+    // A data value outside `0 ..= 31` was handed to `encode`.
+    BechValueOutOfRange(at: Int, v: Int)
+    // The tail of a five-to-eight conversion had bits set, or withheld
+    // a whole byte.
+    //
+    // BIP 173 requires the padding bits to be zero; accepting them
+    // would let two different strings decode to the same bytes.
+    BechBadPadding
+    // The destination handed to `encode_into` or `decode_into` was
+    // shorter than the answer.  `need` is what `encoded_len` or
+    // `decoded_len` would have said.
+    BechBufferTooSmall(need: Int, have: Int)
+
+// What a decode found, without copying anything it did not have to.
+//
+// `hrp_start` and `hrp_end` are a half-open byte range into the string
+// that was decoded, so the caller reads the human-readable part out of
+// the bytes it already holds.  `values` is how many five-bit values
+// were written into the destination, and `variant` is the code
+// `bech32_core.variant_of` answered.
+//
+// A boxed struct rather than a `@value` one because it is a `Result`
+// payload, and a `@value` struct may not be.
+pub struct BechRead
+    hrp_start: Int
+    hrp_end: Int
+    values: Int
+    variant: Int
+
+// A whole decoded string, for a caller that does not mind allocating.
+//
+// The convenience on top of `decode_into`: the human-readable part as
+// its own `Str` and the data as its own list.  A host reading one
+// address wants this; a device reading one wants `decode_into`.
+pub struct BechData
+    hrp: Str
+    data: [u8]
+    variant: BechVariant
+
+// The standard `Error` implementation, so a bad string can be reported
+// by anything that reports errors.
+impl Error for BechError
+    // Answer the one-line report: what was wrong, and at what character
+    // offset when there is one.  The offset is in the text rather than
+    // left for the caller to add, because a bech32 string has no other
+    // landmark.
+    fn message(self) -> Str
+        todo("bech32.BechError.message")
+
+// The variant as the integer `bech32_core` stores.
+//
+// The bridge between the two halves: the enum is what a host caller
+// reads, and the integer is what survives `@value` on a device.
+//
+// ```novo
+// use bech32
+// use bech32_core
+//
+// fn main() [io]
+//     println("${bech32.variant_code(Bech32)}")   // 0
+// ```
+pub fn variant_code(v: BechVariant) -> Int
+    todo("bech32.variant_code")
+
+// The integer as the enum.  A code that is neither answers `Bech32`,
+// which is the one a caller with no other information should assume.
+pub fn variant_from_code(code: Int) -> BechVariant
+    todo("bech32.variant_from_code")
+
+// ── Sizing, so a caller can allocate before it encodes ──────────────
+
+// How many characters a string with an `hrp_len`-byte prefix and
+// `data_len` five-bit values comes to.
+//
+// `hrp_len + 1 + data_len + 6` — the prefix, the separator, the data
+// and the checksum.  What a caller sizing the destination for
+// `encode_into` asks first.
+//
+// ```novo
+// use bech32
+//
+// fn main() [io]
+//     // "bc" plus a version-0 witness program of twenty bytes.
+//     println("${bech32.encoded_len(2, 33)}")   // 42
+// ```
+pub fn encoded_len(hrp_len: Int, data_len: Int) -> Int
+    todo("bech32.encoded_len")
+
+// How many five-bit values `s` decodes to, without decoding it.
+//
+// Reads the length and the separator's position and nothing else, so it
+// answers `Ok` for a string full of characters that turn out to be
+// invalid.  A caller sizing a destination wants the number; a caller
+// validating wants `decode_into`.
+pub fn decoded_len(s: Str) -> Result<Int, BechError>
+    todo("bech32.decoded_len")
+
+// ── Encoding ────────────────────────────────────────────────────────
+
+// Encode `hrp` and `data` as a bech32 string.
+//
+// `data` is five-bit values, `0 ..= 31` each — `bytes_to_data` is what
+// turns a payload into them.  `hrp` is lower-cased on the way in, so a
+// caller that passed `"BC"` gets `"bc1…"` and not a mixed-case string
+// that would not decode.
+//
+// Refuses a result longer than 90 characters; `encode_unlimited` is the
+// pair that does not.
+//
+// ```novo
+// use bech32
+//
+// fn main() [io]
+//     match bech32.encode("a", [], Bech32)
+//         Ok(s)  => println(s)   // a12uel5l
+//         Err(e) => println(e.message())
+// ```
+pub fn encode(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
+    todo("bech32.encode")
+
+// The same, with the 90-character limit not enforced.
+//
+// For BOLT 11 lightning invoices and anything else that lifted the
+// limit deliberately.  A caller using this is giving up BIP 173's
+// guarantee that up to four character errors are detected, and the
+// separate name is so that choice appears at the call site.
+pub fn encode_unlimited(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
+    todo("bech32.encode_unlimited")
+
+// Encode into a buffer the caller already owns, and answer the
+// characters written.
+//
+// `BechBufferTooSmall` when the cursor has less room than
+// `encoded_len` says, and NOTHING is written in that case — a partially
+// encoded buffer is worse than none, because it looks like an address.
+//
+// This is the call the package exists for on the host side: a service
+// generating addresses allocates the destination once and reuses it.
+pub fn encode_into(hrp: Str, data: [u8], v: BechVariant, mut dst: Cursor) -> Result<Int, BechError>
+    todo("bech32.encode_into")
+
+// ── Decoding ────────────────────────────────────────────────────────
+
+// Decode `s` into a buffer the caller already owns.
+//
+// Answers the human-readable part as a RANGE into `s`, the number of
+// five-bit values written, and which variant the checksum named — see
+// `BechRead`.  The checksum characters are NOT written: they are
+// consumed by the verification and are not data.
+//
+// The whole-string rules are checked here and in this order: the case
+// mixture, the length, the separator's position, the prefix's
+// characters, then the data's, then the checksum.  Earliest refusal
+// first, so the offset in the error is the leftmost thing wrong.
+//
+// ```novo
+// use std.bytes
+// use bech32
+//
+// fn main() [io]
+//     var buf = bytes.cursor_be(bytes.zeros(64))
+//     match bech32.decode_into("a12uel5l", buf)
+//         Ok(r)  => println("${r.hrp_start} ${r.hrp_end} ${r.values}")   // 0 1 0
+//         Err(e) => println(e.message())
+// ```
+pub fn decode_into(s: Str, mut dst: Cursor) -> Result<BechRead, BechError>
+    todo("bech32.decode_into")
+
+// The same, with the 90-character limit not enforced.
+pub fn decode_unlimited(s: Str, mut dst: Cursor) -> Result<BechRead, BechError>
+    todo("bech32.decode_unlimited")
+
+// Decode `s` into a fresh prefix and a fresh list of values.
+//
+// The convenience for a host that does not mind allocating.  Same
+// rules, same refusals.
+//
+// ```novo
+// use bech32
+//
+// fn main() [io]
+//     match bech32.decode("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw")
+//         Ok(d)  => println("${d.hrp} ${d.data.len()}")   // abcdef 32
+//         Err(e) => println(e.message())
+// ```
+pub fn decode(s: Str) -> Result<BechData, BechError>
+    todo("bech32.decode")
+
+// Decode `s` and refuse it unless the checksum names `want`.
+//
+// `BechWrongVariant` when the string is valid for the other one — which
+// is a different refusal from a bad checksum on purpose, because a
+// taproot address handed to a bech32-only reader is a working address
+// in an application that has not been updated, and "bad address" would
+// send the user looking in the wrong place.
+pub fn decode_variant(s: Str, want: BechVariant) -> Result<BechData, BechError>
+    todo("bech32.decode_variant")
+
+// True when `s` decodes under either variant.
+pub fn is_valid(s: Str) -> Bool
+    todo("bech32.is_valid")
+
+// ── The payload conversion, for a caller with bytes ─────────────────
+
+// `b` regrouped from eight-bit bytes into five-bit values, padded.
+//
+// Cannot fail: every byte sequence has a five-bit regrouping.  What a
+// caller does to a payload before `encode`.
+//
+// ```novo
+// use std.bytes
+// use bech32
+//
+// fn main() [io]
+//     let one = bytes.from_hex("ff") ?? bytes.zeros(0)
+//     // Eight bits regroup into two five-bit values, the second padded.
+//     println("${bech32.bytes_to_data(one).len()}")   // 2
+// ```
+pub fn bytes_to_data(b: Bytes) -> [u8]
+    todo("bech32.bytes_to_data")
+
+// `data` regrouped from five-bit values back into bytes.
+//
+// `BechBadPadding` when the tail withholds a whole byte or has any bit
+// set — the rule that stops two different strings decoding to the same
+// payload — and `BechValueOutOfRange` naming the first value above 31.
+pub fn data_to_bytes(data: [u8]) -> Result<Bytes, BechError>
+    todo("bech32.data_to_bytes")

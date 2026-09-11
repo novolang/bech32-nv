@@ -1,0 +1,43 @@
+[package]
+name        = "bech32-nv"
+version     = "0.0.1"
+description = "BIP 173 bech32 and BIP 350 bech32m: the BCH checksum as a @value state fed five bits at a time, encode and decode into a buffer the caller already owns with the human-readable part answered as a range, the eight-to-five regrouping with and without padding, and segwit addresses as the one application module.  Interface only — every body is a todo()."
+license     = "Apache-2.0"
+
+# An INTERFACE release: every `pub fn` body is a `todo()`, so the
+# signatures and the effect rows are published and nothing is
+# implemented.  `novo pkg publish` recognises the shape and requires
+# both the draft stability and the 0.0.x version; the first
+# implementation is the 0.1.0 published over it.
+stability   = "draft"
+
+# `core`: a polymod and a shift over characters the caller already
+# holds.  No function declares an effect, nothing is read and nothing
+# is written.
+#
+# It carries `tests/embedded_probe.nv`, so the device claim is BUILT.
+# The consumer that needs it is a hardware wallet: the device that
+# signs a transaction is the device that has to show the address, and
+# it has neither a heap nor a second copy of the string to spare.
+layer       = "core"
+
+category    = "encoding"
+
+tags        = ["bech32", "bech32m", "bip173", "bip350", "segwit", "bitcoin", "embedded", "no-alloc"]
+repository  = "https://github.com/novolang/bech32-nv"
+maintainers = ["novo-lang"]
+novo        = ">= 0.8.9"
+
+# A library: no `main`, so `novo pkg build` type-checks and
+# effect-checks every module under `src/` and writes no binary.
+
+[docs.pages]
+"README.md" = "A checksum fed five bits at a time"
+
+[dependencies]
+# None, and bitstream-nv is the one a reader would expect to see here.
+# bech32's regrouping is a FIXED five bits against eight with a
+# two-value bound on every step, so a general variable-width bit reader
+# would carry a width argument through the inner loop for no gain — and
+# the embedded probe is built from the package's own core modules and
+# nothing they depend on, so a dependency would cost the device claim.

@@ -1,0 +1,213 @@
+// bech32_core — the BCH checksum of BIP 173 and BIP 350, as a state
+// machine that allocates nothing, holds no buffer, and builds for a
+// microcontroller.
+//
+// Every body is a `todo()`.  The signatures are the design, and the
+// compiler checks them as claims; see the README for the stamp.
+//
+// WHY THERE IS A SECOND MODULE.  `bech32` speaks `Str`, `Bytes` and
+// `Cursor`, and none of them links at `@tier(embedded)`: the embedded
+// runtime defines no `novo_str_*` or `novo_bytes_*` symbol, so a device
+// that called one would fail at the linker rather than at the type
+// checker.  A hardware wallet showing an address on its own screen is
+// the consumer that makes this split worth having, so the half it uses
+// is its own module and takes and returns integers.
+//
+// THE STATE IS ONE INTEGER.  `chk` is the running polymod, thirty bits
+// of it, and nothing else — not the human-readable part, not the data,
+// not a position.  The caller feeds five bits at a time and the order
+// it feeds them in IS the algorithm:
+//
+//   var c = bech32_core.start()
+//   for each byte of the hrp:  c = feed(c, hrp_high(byte))
+//   c = feed(c, 0)
+//   for each byte of the hrp:  c = feed(c, hrp_low(byte))
+//   for each data value:       c = feed(c, value)
+//
+// and then either `finish` to produce a checksum or `verify` to check
+// one.  BIP 173 § "Checksum" is that loop written in prose, and keeping
+// the shape identical is what makes the port reviewable against the
+// specification rather than against this package.
+//
+// WHY THE HRP GOES IN TWICE.  The high three bits of every character
+// first, a zero, then the low five bits.  That is `hrp_expand`, and it
+// is what makes the checksum notice a change in a character's case even
+// though the data part is case-insensitive — which is BIP 173's
+// `A1G7SGD8` invalid vector.
+//
+// TWO VARIANTS, ONE ALGORITHM.  bech32 and bech32m differ in a single
+// constant: 1 against 0x2bc830a3.  BIP 350 introduced the second after
+// a length-extension weakness was found in the first for the case where
+// the final character is `p`; the arithmetic is otherwise identical, and
+// which one an address uses is decided by its witness version, not by
+// its prefix.  `bechsegwit.variant_for` is that rule.
+
+// The running checksum: thirty bits of polymod and nothing else.
+//
+// A `@value` struct, so it lives in the caller's stack frame with no
+// header, no reference count and no allocation.  A wallet verifying an
+// address it is about to display owns eight bytes of its own frame.
+pub @value
+struct BechChk
+    chk: Int
+
+// bech32's variant code: 0.
+//
+// An integer rather than the enum `bech32` declares, because a `@value`
+// module holds integers and a fieldless enum is still a tagged value.
+// `bech32.variant_code` is the one function that crosses.
+pub fn variant_bech32() -> Int
+    todo("bech32_core.variant_bech32")
+
+// bech32m's variant code: 1.
+pub fn variant_bech32m() -> Int
+    todo("bech32_core.variant_bech32m")
+
+// The constant a finished polymod is compared against, or XORed with:
+// 1 for bech32, 0x2bc830a3 for bech32m.
+//
+// The whole of the difference between the two encodings.
+//
+// ```novo
+// use bech32_core
+//
+// fn main() [io]
+//     println("${bech32_core.variant_const(bech32_core.variant_bech32())}")   // 1
+// ```
+pub fn variant_const(variant: Int) -> Int
+    todo("bech32_core.variant_const")
+
+// Which variant a finished residue names, or -1 for neither.
+//
+// What a decoder calls instead of guessing: read the string, feed
+// everything including the six checksum characters, and ask the residue
+// which encoding it was.  A caller that expected one and got the other
+// has an address whose witness version and encoding disagree, which is
+// precisely what BIP 350 exists to make detectable.
+pub fn variant_of(residue: Int) -> Int
+    todo("bech32_core.variant_of")
+
+// How many characters the checksum occupies: 6.
+pub fn checksum_len() -> Int
+    todo("bech32_core.checksum_len")
+
+// The longest bech32 string BIP 173 allows: 90 characters.
+//
+// The limit exists because the BCH code guarantees detection of up to
+// four errors only within it.  It is a property of the STRING, prefix
+// and separator and checksum included, not of the data part.
+//
+// Some uses lift it deliberately — BOLT 11 lightning invoices are
+// bech32 and are routinely longer — so `bech32.encode` and
+// `bech32.decode` enforce it and `bech32.encode_unlimited` and
+// `bech32.decode_unlimited` do not.  A caller lifting it is choosing to
+// give up the error-detection guarantee, and the two names say so.
+pub fn max_length() -> Int
+    todo("bech32_core.max_length")
+
+// The character that separates the human-readable part from the data:
+// `1`, which is ASCII 49.
+//
+// `1` and not a punctuation mark because it is not in the data charset,
+// so a decoder finds the boundary by scanning for the LAST one — a
+// prefix may contain `1`, and BIP 173's
+// `an83characterlonghumanreadablepart…number1and…` vector is there to
+// catch a decoder that scanned for the first.
+pub fn separator() -> Int
+    todo("bech32_core.separator")
+
+// The ASCII byte that encodes the five-bit value `v`.
+//
+// The charset is `qpzry9x8gf2tvdw0s3jn54khce6mua7l`, lower case.  A `v`
+// outside `0 ..= 31` answers 0, which is not a character in the charset
+// and so cannot be mistaken for one.
+//
+// The order is not alphabetical and is not an accident: the characters
+// most likely to be confused when read aloud or transcribed are placed
+// so that a single-character error is more likely to be caught.
+//
+// ```novo
+// use bech32_core
+//
+// fn main() [io]
+//     println("${bech32_core.charset_at(0)}")   // 113, which is `q`
+// ```
+pub fn charset_at(v: Int) -> Int
+    todo("bech32_core.charset_at")
+
+// The five-bit value the ASCII byte `ch` encodes, or -1 for a byte that
+// is not in the charset.
+//
+// Case-INSENSITIVE: `Q` and `q` are both 0.  The mixed-case refusal is
+// a separate rule about the whole string and lives in `bech32`, because
+// a per-character decoder has no way to know what case the rest of the
+// string was in.
+//
+// `1`, `b`, `i` and `o` are deliberately absent from the charset — they
+// are the four characters most often confused with `l`, `6`, `1` and
+// `0` — so each of them answers -1.
+pub fn charset_index(ch: Int) -> Int
+    todo("bech32_core.charset_index")
+
+// The three high bits of a human-readable character, as the checksum
+// takes them: `ch >> 5`.
+pub fn hrp_high(ch: Int) -> Int
+    todo("bech32_core.hrp_high")
+
+// The five low bits of a human-readable character: `ch & 31`.
+pub fn hrp_low(ch: Int) -> Int
+    todo("bech32_core.hrp_low")
+
+// A fresh checksum, with nothing fed in: `chk` is 1.
+pub fn start() -> BechChk
+    todo("bech32_core.start")
+
+// One step of the BCH polymod over the five-bit value `v`.
+//
+// Shift the top five bits out, XOR the five generator constants
+// selected by them, and mix `v` in — BIP 173's `bech32_polymod` inner
+// loop, exactly.  Twelve instructions on a Cortex-M and no table.
+//
+// A `v` outside `0 ..= 31` is masked rather than refused, because this
+// is the inner loop and the callers that can produce one — `hrp_high`
+// on a byte past 127 — are already refused by `bech32`.
+//
+// ```novo
+// use bech32_core
+//
+// fn main() [io]
+//     println("${bech32_core.feed(bech32_core.start(), 0).chk}")   // 32
+// ```
+pub fn feed(c: BechChk, v: Int) -> BechChk
+    todo("bech32_core.feed")
+
+// Close the checksum for `variant`: feed six zeros and XOR the
+// variant's constant.
+//
+// The `chk` of the result holds the six five-bit checksum values packed
+// highest first; `checksum_value` reads them out.  A caller ENCODING
+// calls this; a caller decoding calls `verify` instead, because the six
+// characters are already in the string it is feeding.
+pub fn finish(c: BechChk, variant: Int) -> BechChk
+    todo("bech32_core.finish")
+
+// The `i`-th of the six checksum values from a finished state,
+// `0 ..= 5`, highest first.
+//
+// `charset_at` of each is the character to write.  An `i` outside the
+// range answers 0.
+pub fn checksum_value(c: BechChk, i: Int) -> Int
+    todo("bech32_core.checksum_value")
+
+// The running polymod, for a caller that wants to ask `variant_of`.
+pub fn residue(c: BechChk) -> Int
+    todo("bech32_core.residue")
+
+// True when everything fed in — the expanded prefix, the data AND the
+// six checksum values — leaves `variant`'s residue.
+//
+// The decode-side mirror of `finish`.  Both directions run the same
+// `feed` loop over the same values; only the last step differs, which
+// is why an implementation cannot get one right and the other wrong.
+pub fn verify(c: BechChk, variant: Int) -> Bool
+    todo("bech32_core.verify")

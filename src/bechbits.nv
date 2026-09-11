@@ -1,0 +1,148 @@
+// bechbits — the eight-to-five bit regrouping, and back, as a state
+// machine that allocates nothing and builds for a microcontroller.
+//
+// Every body is a `todo()`.  The signatures are the design, and the
+// compiler checks them as claims; see the README for the stamp.
+//
+// WHAT IT IS.  bech32 encodes five bits per character and a payload is
+// bytes, so every encoder regroups eight-bit groups into five-bit ones
+// and every decoder does the reverse.  BIP 173 calls it `convertbits`
+// and gives it a padding flag; this is that function as a value the
+// caller drives, so a device can run it over a stream it never holds
+// whole.
+//
+// THE TWO DIRECTIONS ARE NOT SYMMETRIC, and that asymmetry is the whole
+// of what a wrong implementation gets wrong:
+//
+// - **Eight to five, PADDED.**  The leftover bits at the end are padded
+//   with zeros up to a whole five-bit group and emitted.  A payload of
+//   any length has an encoding.
+// - **Five to eight, UNPADDED.**  The leftover bits at the end must be
+//   fewer than eight and must all be zero, and they are DISCARDED.  A
+//   string whose padding bits are set does not decode — BIP 173 says so
+//   explicitly, and a decoder that ignored it would let two different
+//   strings decode to the same bytes.
+//
+// `finish_padded` and `finish_exact` are those two rules, named.  There
+// is no flag: a caller that passed a variable would not be able to say
+// which it meant, and the two are used in opposite directions.
+//
+// WHY THE OUTPUT IS AT MOST TWO.  Going from eight bits to five, the
+// accumulator holds at most four bits before a byte arrives, so twelve
+// bits are available and two groups of five come out.  Going from five
+// to eight it holds at most seven, so twelve again and one byte comes
+// out.  Two is the bound in both directions, which is why the emit
+// buffer is a fixed `[u8; 2]` and not a list.
+
+// A partial group, mid-regrouping: the bits that have arrived and have
+// not yet been emitted.
+//
+// A `@value` struct, so it lives in the caller's stack frame with no
+// header, no reference count and no allocation.
+//
+// `acc` holds the pending bits right-aligned, `bits` is how many of
+// them there are, and `from_bits` and `to_bits` say which direction
+// this converter runs in — carried on the value rather than chosen by
+// the function, so a caller cannot feed the same converter to both.
+pub @value
+struct BechConv
+    acc: Int
+    bits: Int
+    from_bits: Int
+    to_bits: Int
+
+// What one step produced: the converter after it, the values to write,
+// and whether the step was sound.
+//
+// `out` is a fixed two-element inline array because two is the most any
+// step can produce — see the module note — and a list would be a heap
+// allocation in an interrupt handler.  `ok` is false only from
+// `finish_exact`, and only for a tail that should not have been there.
+pub @value
+struct BechConvStep
+    conv: BechConv
+    out: [u8; 2]
+    len: Int
+    ok: Bool
+
+// A converter that takes eight-bit bytes and emits five-bit values.
+//
+// The encode direction.  Close it with `finish_padded`.
+//
+// ```novo
+// use bechbits
+//
+// fn main() [io]
+//     println("${bechbits.to5().to_bits}")   // 5
+// ```
+pub fn to5() -> BechConv
+    todo("bechbits.to5")
+
+// A converter that takes five-bit values and emits eight-bit bytes.
+//
+// The decode direction.  Close it with `finish_exact`.
+pub fn to8() -> BechConv
+    todo("bechbits.to8")
+
+// Feed one value and answer the converter after it with what to write.
+//
+// A value with bits above `from_bits` set is masked rather than
+// refused, because the callers that could produce one — a charset index
+// is `0 ..= 31`, a byte is `0 ..= 255` — are already checked where they
+// are read.
+//
+// ```novo
+// use bechbits
+//
+// fn main() [io]
+//     // One byte in: three bits held back, one five-bit value out.
+//     let step = bechbits.feed(bechbits.to5(), 255 as u8)
+//     println("${step.len} ${step.conv.bits}")   // 1 3
+// ```
+pub fn feed(c: BechConv, v: u8) -> BechConvStep
+    todo("bechbits.feed")
+
+// Close an eight-to-five conversion: pad the leftover bits with zeros
+// and emit them.
+//
+// `len` is 0 when nothing is pending and 1 otherwise; it is never 2,
+// because fewer than five bits are ever left over.  `ok` is always
+// true — every payload has an encoding.
+//
+// ```novo
+// use bechbits
+//
+// fn main() [io]
+//     let one = bechbits.feed(bechbits.to5(), 255 as u8)
+//     println("${bechbits.finish_padded(one.conv).len}")   // 1
+// ```
+pub fn finish_padded(c: BechConv) -> BechConvStep
+    todo("bechbits.finish_padded")
+
+// Close a five-to-eight conversion: check the leftover bits and discard
+// them.
+//
+// `ok` is false when there are eight or more leftover bits — which
+// means a whole byte was withheld — or when any of them is SET.  BIP
+// 173 requires both, and the second is what stops two different strings
+// decoding to the same bytes.  `len` is 0 either way: this direction
+// emits nothing at the end.
+pub fn finish_exact(c: BechConv) -> BechConvStep
+    todo("bechbits.finish_exact")
+
+// How many values `n` inputs regroup to.
+//
+// `(n * from_bits + to_bits - 1) / to_bits` when `pad` is true and
+// `(n * from_bits) / to_bits` when it is not.  What a caller sizing a
+// destination asks before it starts, and the arithmetic behind
+// `bech32.encoded_len`.
+//
+// ```novo
+// use bechbits
+//
+// fn main() [io]
+//     // Twenty bytes of a version-0 witness program are 32 characters.
+//     println("${bechbits.out_len(20, 8, 5, true)}")   // 32
+// ```
+pub fn out_len(n: Int, from_bits: Int, to_bits: Int, pad: Bool) -> Int
+    todo("bechbits.out_len")

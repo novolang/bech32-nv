@@ -1,0 +1,192 @@
+// bechsegwit — segwit addresses: the one application of bech32 that
+// the specification itself defines.
+//
+// Every body is a `todo()`.  The signatures are the design, and the
+// compiler checks them as claims; see the README for the stamp.
+//
+// WHY THIS IS A MODULE AND NOT THE PACKAGE.  bech32 is a general
+// encoding — BOLT 11 invoices, Nostr identifiers and several PSBT
+// fields all use it — and segwit is one consumer.  Keeping the two
+// apart means the general half has no Bitcoin in it and this half has
+// all of it, which is what a reviewer wants to be able to check
+// separately.
+//
+// THE RULE THAT MATTERS, and the reason BIP 350 exists: **the witness
+// version chooses the encoding.**  Version 0 is bech32; versions 1
+// through 16 are bech32m.  A version-1 address encoded as bech32 is
+// invalid and a version-0 address encoded as bech32m is invalid, and
+// both refusals are deliberate — a length-extension weakness was found
+// in bech32 for strings whose final character is `p`, and the split by
+// version is how the fix was deployed without invalidating every
+// existing address.  `variant_for` is that rule as one function, and
+// everything else here calls it.
+//
+// THE SECOND RULE: the program's length is checked against the version.
+// BIP 141 fixes version 0 at exactly 20 bytes (a key hash) or exactly
+// 32 (a script hash); every later version takes 2 to 40.  A version-0
+// address with a 21-byte program is well-formed bech32 and is not an
+// address, and `check_program` is where that is said.
+//
+// WHAT IS NOT HERE.  No script, no network table, no key derivation.
+// `hrp` is a caller's argument — `"bc"`, `"tb"`, `"bcrt"` — because the
+// set of networks is not this package's to decide, and a consumer on a
+// signet with its own prefix should not have to wait for a release.
+
+// A decoded segwit address.
+//
+// A boxed struct because it is a `Result` payload and owns a `Str` and
+// a `Bytes`, neither of which a `@value` may hold.
+pub struct BechSegwit
+    // The network prefix as it appeared, lower-cased: `bc`, `tb`,
+    // `bcrt`.
+    hrp: Str
+    // The witness version, `0 ..= 16`.
+    version: Int
+    // The witness program, 2 to 40 bytes.
+    program: Bytes
+
+// The encoding a witness version must use: `bech32_core`'s code for
+// bech32 at version 0, and for bech32m at 1 and above.
+//
+// One function, and every other function here calls it.  A caller
+// implementing its own address handling should call it too rather than
+// writing `if version == 0` a second time.
+//
+// ```novo
+// use bechsegwit
+// use bech32_core
+//
+// fn main() [io]
+//     println("${bechsegwit.variant_for(0) == bech32_core.variant_bech32()}")    // true
+//     println("${bechsegwit.variant_for(1) == bech32_core.variant_bech32m()}")   // true
+// ```
+pub fn variant_for(version: Int) -> Int
+    todo("bechsegwit.variant_for")
+
+// True when `len` is a program length `version` allows.
+//
+// Version 0: exactly 20 or exactly 32, which are the key hash and the
+// script hash BIP 141 defines and nothing else.  Versions 1 to 16: 2
+// through 40.  Any other version: false — there are seventeen, and a
+// version outside them is not a segwit output.
+//
+// ```novo
+// use bechsegwit
+//
+// fn main() [io]
+//     println("${bechsegwit.check_program(0, 20)}")   // true
+//     println("${bechsegwit.check_program(0, 21)}")   // false
+//     println("${bechsegwit.check_program(1, 32)}")   // true
+// ```
+pub fn check_program(version: Int, len: Int) -> Bool
+    todo("bechsegwit.check_program")
+
+// How many characters the address for a program of `program_len` bytes
+// under `hrp` comes to.
+//
+// The version is one five-bit value and the program regroups at eight
+// bits to five, so this is `hrp_len + 1 + 1 + ceil(program_len * 8 / 5)
+// + 6`.  What a caller sizing the destination for `encode_into` asks
+// first.
+//
+// ```novo
+// use bechsegwit
+//
+// fn main() [io]
+//     // "bc" and a twenty-byte program: the familiar 42-character
+//     // version-0 address.
+//     println("${bechsegwit.encoded_len(2, 20)}")   // 42
+// ```
+pub fn encoded_len(hrp_len: Int, program_len: Int) -> Int
+    todo("bechsegwit.encoded_len")
+
+// The address for `version` and `program` under `hrp`.
+//
+// Picks the encoding with `variant_for` — the caller does not choose
+// it, because a caller that could choose it could get it wrong and the
+// resulting string would be a valid bech32 string that is not an
+// address.  Refuses a version outside `0 ..= 16` and a program length
+// `check_program` rejects.
+//
+// ```novo
+// use std.bytes
+// use bechsegwit
+//
+// fn main() [io]
+//     let prog = bytes.from_hex("751e76e8199196d454941c45d1b3a323f1433bd6") ?? bytes.zeros(0)
+//     match bechsegwit.encode("bc", 0, prog)
+//         Ok(a)  => println(a)
+//         Err(e) => println(e.message())
+//     // bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4
+// ```
+pub fn encode(hrp: Str, version: Int, program: Bytes) -> Result<Str, BechError>
+    todo("bechsegwit.encode")
+
+// The address, written into a buffer the caller already owns.
+//
+// The call a hardware wallet's host side makes.  `BechBufferTooSmall`
+// when the cursor has less room than `encoded_len` says, and nothing is
+// written in that case.
+pub fn encode_into(hrp: Str, version: Int, program: Bytes,
+                   mut dst: Cursor) -> Result<Int, BechError>
+    todo("bechsegwit.encode_into")
+
+// The network, version and program `s` names.
+//
+// Every bech32 refusal, plus three of this module's own: a version
+// outside `0 ..= 16`, a program length `check_program` rejects, and a
+// string whose encoding does not match the encoding its version
+// requires.  The last one is `BechWrongVariant`, and it is the check
+// that makes BIP 350 worth having.
+//
+// The prefix is NOT checked against a list of networks: `hrp` comes
+// back as it was, and a caller that only accepts mainnet compares it
+// itself.  A package that owned the list would have to be released
+// every time a test network appeared.
+//
+// ```novo
+// use std.bytes
+// use bechsegwit
+//
+// fn main() [io]
+//     match bechsegwit.decode("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")
+//         Ok(a)  => println("${a.hrp} ${a.version} ${bytes.len(a.program)}")   // bc 0 20
+//         Err(e) => println(e.message())
+// ```
+pub fn decode(s: Str) -> Result<BechSegwit, BechError>
+    todo("bechsegwit.decode")
+
+// The same, refused unless the prefix is exactly `hrp`.
+//
+// For the caller that does have one network in mind — a wallet on
+// mainnet that should not accept a testnet address a user pasted by
+// mistake.  Comparison is case-insensitive, because an address may be
+// printed in upper case.
+pub fn decode_for(s: Str, hrp: Str) -> Result<BechSegwit, BechError>
+    todo("bechsegwit.decode_for")
+
+// True when `s` is a segwit address under any prefix.
+pub fn is_address(s: Str) -> Bool
+    todo("bechsegwit.is_address")
+
+// The `scriptPubKey` bytes for a version and a program.
+//
+// `OP_0` for version 0 and `OP_1` through `OP_16` — which are the bytes
+// 0x51 to 0x60 — for the rest, then a push of the program.  The one
+// piece of Bitcoin script in the package, and it is here because a
+// caller that has decoded an address almost always wants this next and
+// would otherwise write the version-to-opcode table itself.
+//
+// ```novo
+// use std.bytes
+// use bechsegwit
+//
+// fn main() [io]
+//     let prog = bytes.from_hex("751e76e8199196d454941c45d1b3a323f1433bd6") ?? bytes.zeros(0)
+//     match bechsegwit.script_pubkey(0, prog)
+//         Ok(b)  => println(bytes.to_hex(b))
+//         Err(e) => println(e.message())
+//     // 0014751e76e8199196d454941c45d1b3a323f1433bd6
+// ```
+pub fn script_pubkey(version: Int, program: Bytes) -> Result<Bytes, BechError>
+    todo("bechsegwit.script_pubkey")
