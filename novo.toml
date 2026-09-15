@@ -1,6 +1,6 @@
 [package]
 name        = "bech32-nv"
-version     = "0.0.1"
+version     = "0.0.2"
 description = "BIP 173 bech32 and BIP 350 bech32m: the BCH checksum as a @value state fed five bits at a time, encode and decode into a buffer the caller already owns with the human-readable part answered as a range, the eight-to-five regrouping with and without padding, and segwit addresses as the one application module.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
