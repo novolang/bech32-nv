@@ -1,17 +1,10 @@
 // tests/bech32_tests.nv — the BIP test vectors, valid and invalid.
 //
-// They COMPILE today and they FAIL at run, with `not implemented:
-// <module>.<fn>` from the `todo()` that is each body.  That is the
-// expected state of an interface release: the compiler has checked
-// every signature, every type and every effect row, and nothing else
-// has been checked because there is nothing else yet.
-//
-// EVERY VECTOR IS A BIP'S.  BIP 173 § "Test vectors" gives seven valid
-// bech32 strings and eleven invalid ones with a stated reason each; BIP
-// 350 § "Test vectors for Bech32m" gives the same shape for the second
-// variant, plus the segwit address vectors and the version-to-encoding
-// rule that is the whole point of the second BIP.  A test that passes
-// here is a string any conforming implementation reads the same way.
+// Every vector is copied verbatim from BIP 173 § "Test vectors" and
+// BIP 350 § "Test vectors for Bech32m" and § "Test vectors for v0-v16
+// native segregated witness addresses".  Each invalid vector is asserted
+// against the refusal its stated reason names.  A test that passes here
+// is a string any conforming implementation reads the same way.
 
 use std.test
 use std.bytes
@@ -68,7 +61,7 @@ fn test_the_bip_350_valid_vectors_decode_as_bech32m()
     assert_decodes("a1lqfn3a", "a", 0, Bech32m)
     assert_decodes("abcdef1l7aum6echk45nj3s0wdvt2fg8x9yrzpqzd3ryx", "abcdef", 32, Bech32m)
     assert_decodes("split1checkupstagehandshakeupstreamerranterredcaperredlc445v", "split", 48, Bech32m)
-    assert_decodes("?1v759ad", "?", 0, Bech32m)
+    assert_decodes("?1v759aa", "?", 0, Bech32m)
 
 @test
 fn test_the_two_variants_are_told_apart_by_the_checksum_and_not_the_prefix()
@@ -208,7 +201,7 @@ fn test_a_mixture_of_cases_is_refused()
         Ok(_)  => test.fail("upper and lower in one string")
         Err(e) =>
             match e
-                BechMixedCase(at) => test.assert_eq(at, 3)
+                BechMixedCase(at) => test.assert_eq(at, 4)
                 _                 => test.fail("expected BechMixedCase: ${e.message()}")
 
 @test
@@ -381,23 +374,31 @@ fn test_five_to_eight_refuses_a_tail_whose_bits_are_set()
     test.assert_eq(bechbits.finish_exact(one.conv).ok, false)
 
 @test
-fn test_five_to_eight_accepts_a_tail_of_zeros()
-    let one = bechbits.feed(bechbits.to8(), 0 as u8)
-    let done = bechbits.finish_exact(one.conv)
+fn test_five_to_eight_accepts_a_short_tail_of_zeros()
+    // Two values are ten bits: one byte out and two zero bits left.
+    var c = bechbits.to8()
+    for _i in 0..2
+        let step = bechbits.feed(c, 0 as u8)
+        c = step.conv
+    let done = bechbits.finish_exact(c)
     test.assert_eq(done.ok, true)
     test.assert_eq(done.len, 0)
 
 @test
-fn test_five_to_eight_refuses_a_tail_that_withheld_a_whole_byte()
-    // Two five-bit values are ten bits, one byte out and two left; eight
-    // values are forty bits, five bytes out and none left.  Nine would
-    // be forty-five: five bytes and five bits withheld, which is fine,
-    // but a tail of eight or more means a byte never came out.
+fn test_five_to_eight_refuses_a_tail_of_five_bits_or_more()
+    // One value is five bits and no byte: a whole input value of
+    // padding, which BIP 173 calls "zero padding of more than 4 bits".
+    let one = bechbits.feed(bechbits.to8(), 0 as u8)
+    test.assert_eq(bechbits.finish_exact(one.conv).ok, false)
+    // Eight values are forty bits, five bytes and nothing left over.
     var c = bechbits.to8()
     for _i in 0..8
         let step = bechbits.feed(c, 0 as u8)
         c = step.conv
     test.assert_eq(bechbits.finish_exact(c).ok, true)
+    // Nine are forty-five: five bytes, and five bits of padding.
+    let ninth = bechbits.feed(c, 0 as u8)
+    test.assert_eq(bechbits.finish_exact(ninth.conv).ok, false)
 
 @test
 fn test_the_output_length_arithmetic()
@@ -467,7 +468,7 @@ fn test_the_bip_173_worked_example_encodes_and_decodes()
 
 @test
 fn test_the_shortest_segwit_vector_is_version_sixteen()
-    // BIP 173's `BC1SW50QGDZ25J`: version 16, a two-byte program.
+    // BIP 350's `BC1SW50QGDZ25J`: version 16, a two-byte program.
     match bechsegwit.decode("BC1SW50QGDZ25J")
         Ok(a)  =>
             test.assert_eq(a.version, 16)
@@ -573,3 +574,353 @@ fn test_the_variant_code_crosses_between_the_enum_and_the_integer()
     // A code that is neither answers the one to assume with no other
     // information.
     test.assert_eq(bech32.variant_code(bech32.variant_from_code(7)), 0)
+
+// ── Every vector of both BIPs, as tables ────────────────────────────
+
+// The variant name of a refusal, so a table can name what it expects.
+fn kind(e: BechError) -> Str
+    match e
+        BechMixedCase(_)           => "MixedCase"
+        BechNoSeparator            => "NoSeparator"
+        BechHrpEmpty               => "HrpEmpty"
+        BechHrpTooLong(_)          => "HrpTooLong"
+        BechHrpBadCharacter(_, _)  => "HrpBadCharacter"
+        BechDataTooShort(_)        => "DataTooShort"
+        BechBadCharacter(_, _)     => "BadCharacter"
+        BechBadChecksum(_)         => "BadChecksum"
+        BechWrongVariant(_, _)     => "WrongVariant"
+        BechTooLong(_)             => "TooLong"
+        BechValueOutOfRange(_, _)  => "ValueOutOfRange"
+        BechBadPadding             => "BadPadding"
+        BechBufferTooSmall(_, _)   => "BufferTooSmall"
+        BechNoWitnessVersion       => "NoWitnessVersion"
+        BechBadVersion(_)          => "BadVersion"
+        BechBadProgramLength(_, _) => "BadProgramLength"
+        BechWrongHrp(_, _)         => "WrongHrp"
+
+// A string whose first byte is `lead` and whose rest is `rest`, for the
+// vectors that begin with a byte a string literal does not spell.
+fn led(lead: Int, rest: Str) -> Str
+    var b = bytes.zeros(str.len(rest) + 1)
+    b = bytes.set_u8(b, 0, lead)
+    for i in 0..str.len(rest)
+        b = bytes.set_u8(b, i + 1, str.byte_at_or(rest, i, 0))
+    bytes.to_str(b)
+
+// The same with the odd byte last.
+fn trailed(rest: Str, last: Int) -> Str
+    var b = bytes.zeros(str.len(rest) + 1)
+    for i in 0..str.len(rest)
+        b = bytes.set_u8(b, i, str.byte_at_or(rest, i, 0))
+    b = bytes.set_u8(b, str.len(rest), last)
+    bytes.to_str(b)
+
+fn assert_valid_as(s: Str, want: BechVariant)
+    match bech32.decode(s)
+        Ok(d)  =>
+            test.assert_eq(bech32.variant_code(d.variant), bech32.variant_code(want))
+            // Re-encoding the decoded parts gives the string back, in
+            // lower case.
+            match bech32.encode(d.hrp, d.data, want)
+                Ok(again) => test.assert_eq(again, str.lower(s))
+                Err(e)    => test.fail("${s}: ${e.message()}")
+            match bech32.decode_variant(s, want)
+                Ok(_)  => test.assert_eq(1, 1)
+                Err(e) => test.fail("${s}: ${e.message()}")
+        Err(e) => test.fail("${s}: ${e.message()}")
+
+fn assert_refused(s: Str, want: Str)
+    match bech32.decode(s)
+        Ok(_)  => test.fail("${s}: decoded, expected ${want}")
+        Err(e) => test.assert_eq(kind(e), want)
+
+@test
+fn test_every_bip_173_valid_string_decodes_as_bech32_and_re_encodes()
+    assert_valid_as("A12UEL5L", Bech32)
+    assert_valid_as("a12uel5l", Bech32)
+    assert_valid_as("an83characterlonghumanreadablepartthatcontainsthenumber1andtheexcludedcharactersbio1tt5tgs",
+        Bech32)
+    assert_valid_as("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", Bech32)
+    assert_valid_as("11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqc8247j",
+        Bech32)
+    assert_valid_as("split1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", Bech32)
+    assert_valid_as("?1ezyfcl", Bech32)
+
+@test
+fn test_every_bip_350_valid_string_decodes_as_bech32m_and_re_encodes()
+    assert_valid_as("A1LQFN3A", Bech32m)
+    assert_valid_as("a1lqfn3a", Bech32m)
+    assert_valid_as("an83characterlonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11sg7hg6",
+        Bech32m)
+    assert_valid_as("abcdef1l7aum6echk45nj3s0wdvt2fg8x9yrzpqzd3ryx", Bech32m)
+    assert_valid_as("11llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllludsr8",
+        Bech32m)
+    assert_valid_as("split1checkupstagehandshakeupstreamerranterredcaperredlc445v", Bech32m)
+    assert_valid_as("?1v759aa", Bech32m)
+
+@test
+fn test_every_bip_173_invalid_string_is_refused_for_its_stated_reason()
+    assert_refused(led(0x20, "1nwldj5"), "HrpBadCharacter")
+    assert_refused(led(0x7f, "1axkwrx"), "HrpBadCharacter")
+    assert_refused(led(0x80, "1eym55h"), "HrpBadCharacter")
+    assert_refused("an84characterslonghumanreadablepartthatcontainsthenumber1andtheexcludedcharactersbio1569pvx",
+        "TooLong")
+    assert_refused("pzry9x0s0muk", "NoSeparator")
+    assert_refused("1pzry9x0s0muk", "HrpEmpty")
+    assert_refused("x1b4n0q5v", "BadCharacter")
+    assert_refused("li1dgmt3", "DataTooShort")
+    assert_refused(trailed("de1lg7wt", 0xff), "BadCharacter")
+    assert_refused("A1G7SGD8", "BadChecksum")
+    assert_refused("10a06t8", "HrpEmpty")
+    assert_refused("1qzzfhee", "HrpEmpty")
+
+@test
+fn test_every_bip_350_invalid_string_is_refused_for_its_stated_reason()
+    assert_refused(led(0x20, "1xj0phk"), "HrpBadCharacter")
+    assert_refused(led(0x7f, "1g6xzxy"), "HrpBadCharacter")
+    assert_refused(led(0x80, "1vctc34"), "HrpBadCharacter")
+    assert_refused("an84characterslonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11d6pts4",
+        "TooLong")
+    assert_refused("qyrz8wqd2c9m", "NoSeparator")
+    assert_refused("1qyrz8wqd2c9m", "HrpEmpty")
+    assert_refused("y1b0jsk6g", "BadCharacter")
+    assert_refused("lt1igcx5c0", "BadCharacter")
+    assert_refused("in1muywd", "DataTooShort")
+    assert_refused("mm1crxm3i", "BadCharacter")
+    assert_refused("au1s5cgom", "BadCharacter")
+    assert_refused("M1VUXWEZ", "BadChecksum")
+    assert_refused("16plkw9", "HrpEmpty")
+    assert_refused("1p2gdwpf", "HrpEmpty")
+
+@test
+fn test_each_bip_valid_string_is_invalid_under_the_other_variant()
+    // BIP 350: "No string can be simultaneously valid Bech32 and
+    // Bech32m, so the above examples also serve as invalid test vectors
+    // for Bech32."
+    match bech32.decode_variant("a12uel5l", Bech32m)
+        Ok(_)  => test.fail("that string is bech32")
+        Err(e) => test.assert_eq(kind(e), "WrongVariant")
+    match bech32.decode_variant("?1v759aa", Bech32)
+        Ok(_)  => test.fail("that string is bech32m")
+        Err(e) => test.assert_eq(kind(e), "WrongVariant")
+
+fn assert_address(s: Str, script_hex: Str)
+    match bechsegwit.decode(s)
+        Ok(a)  =>
+            match bechsegwit.script_pubkey(a.version, a.program)
+                Ok(b)  => test.assert_eq(bytes.to_hex(b), script_hex)
+                Err(e) => test.fail("${s}: ${e.message()}")
+            // Encoding the parts back gives the address in lower case.
+            match bechsegwit.encode(a.hrp, a.version, a.program)
+                Ok(again) => test.assert_eq(again, str.lower(s))
+                Err(e)    => test.fail("${s}: ${e.message()}")
+            test.assert_eq(bechsegwit.is_address(s), true)
+        Err(e) => test.fail("${s}: ${e.message()}")
+
+fn assert_not_address(s: Str, want: Str)
+    match bechsegwit.decode(s)
+        Ok(_)  => test.fail("${s}: decoded, expected ${want}")
+        Err(e) => test.assert_eq(kind(e), want)
+    test.assert_eq(bechsegwit.is_address(s), false)
+
+@test
+fn test_every_bip_350_valid_address_gives_its_script_pubkey()
+    assert_address("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4",
+                   "0014751e76e8199196d454941c45d1b3a323f1433bd6")
+    assert_address("tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
+                   "00201863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262")
+    assert_address("bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y",
+                   "5128751e76e8199196d454941c45d1b3a323f1433bd6751e76e8199196d454941c45d1b3a323f1433bd6")
+    assert_address("BC1SW50QGDZ25J", "6002751e")
+    assert_address("bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs", "5210751e76e8199196d454941c45d1b3a323")
+    assert_address("tb1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrxh6hy",
+                   "0020000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433")
+    assert_address("tb1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesf3hn0c",
+                   "5120000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433")
+    assert_address("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",
+                   "512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+
+@test
+fn test_the_bip_173_segwit_vectors_that_bip_350_moved_to_bech32m_are_refused()
+    // BIP 173 gave these as valid version-1 and version-16 addresses
+    // under a bech32 checksum.  BIP 350 re-spelled them under bech32m,
+    // and the old spellings are now the wrong variant.
+    assert_not_address("bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k7grplx", "WrongVariant")
+    assert_not_address("BC1SW50QA3JX3S", "WrongVariant")
+    assert_not_address("bc1zw508d6qejxtdg4y5r3zarvaryvg6kdaj", "WrongVariant")
+    // The version-0 ones are unchanged.
+    assert_address("tb1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrxh6hy",
+                   "0020000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433")
+
+@test
+fn test_every_bip_350_invalid_address_is_refused_for_its_stated_reason()
+    // "Invalid human-readable part": the prefix is the caller's to
+    // check, so `decode` accepts it and `decode_for` refuses it.
+    match bechsegwit.decode_for("tc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq5zuyut", "bc")
+        Ok(_)  => test.fail("tc is not bc")
+        Err(e) => test.assert_eq(kind(e), "WrongHrp")
+    assert_not_address("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqh2y7hd", "WrongVariant")
+    assert_not_address("tb1z0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqglt7rf", "WrongVariant")
+    assert_not_address("BC1S0XLXVLHEMJA6C4DQV22UAPCTQUPFHLXM9H8Z3K2E72Q4K9HCZ7VQ54WELL", "WrongVariant")
+    assert_not_address("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kemeawh", "WrongVariant")
+    assert_not_address("tb1q0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq24jc47", "WrongVariant")
+    assert_not_address("bc1p38j9r5y49hruaue7wxjce0updqjuyyx0kh56v8s25huc6995vvpql3jow4", "BadCharacter")
+    assert_not_address("BC130XLXVLHEMJA6C4DQV22UAPCTQUPFHLXM9H8Z3K2E72Q4K9HCZ7VQ7ZWS8R", "BadVersion")
+    assert_not_address("bc1pw5dgrnzv", "BadProgramLength")
+    assert_not_address("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7v8n0nx0muaewav253zgeav",
+        "BadProgramLength")
+    assert_not_address("BC1QR508D6QEJXTDG4Y5R3ZARVARYV98GJ9P", "BadProgramLength")
+    assert_not_address("tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq47Zagq", "MixedCase")
+    assert_not_address("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7v07qwwzcrf", "BadPadding")
+    assert_not_address("tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vpggkg4j", "BadPadding")
+    assert_not_address("bc1gmk9yu", "NoWitnessVersion")
+
+@test
+fn test_every_bip_173_invalid_address_is_refused()
+    match bechsegwit.decode_for("tc1qw508d6qejxtdg4y5r3zarvary0c5xw7kg3g4ty", "bc")
+        Ok(_)  => test.fail("tc is not bc")
+        Err(e) => test.assert_eq(kind(e), "WrongHrp")
+    assert_not_address("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", "BadChecksum")
+    assert_not_address("BC13W508D6QEJXTDG4Y5R3ZARVARY0C5XW7KN40WF2", "BadVersion")
+    assert_not_address("bc1rw5uspcuh", "BadProgramLength")
+    assert_not_address("bc10w508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kw5rljs90",
+        "BadProgramLength")
+    assert_not_address("BC1QR508D6QEJXTDG4Y5R3ZARVARYV98GJ9P", "BadProgramLength")
+    assert_not_address("tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sL5k7", "MixedCase")
+    assert_not_address("bc1zw508d6qejxtdg4y5r3zarvaryvqyzf3du", "BadPadding")
+    assert_not_address("tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3pjxtptv", "BadPadding")
+    assert_not_address("bc1gmk9yu", "NoWitnessVersion")
+
+// ── The remaining refusals and their messages ───────────────────────
+
+@test
+fn test_a_prefix_past_eighty_three_characters_in_a_short_enough_string_is_refused()
+    // Ninety characters with the separator at 84 leaves five for the
+    // data, and the prefix is the first thing wrong.
+    let hrp = str.repeat("a", 84)
+    assert_refused(hrp + "1qqqqq", "HrpTooLong")
+
+@test
+fn test_every_refusal_has_a_one_line_message()
+    let all = [BechMixedCase(1), BechNoSeparator, BechHrpEmpty, BechHrpTooLong(84),
+               BechHrpBadCharacter(0, 32), BechDataTooShort(5), BechBadCharacter(2, 98),
+               BechBadChecksum(7), BechWrongVariant(1, 0), BechWrongVariant(0, 1),
+               BechTooLong(91), BechValueOutOfRange(0, 32), BechBadPadding,
+               BechBufferTooSmall(8, 4), BechNoWitnessVersion, BechBadVersion(17),
+               BechBadProgramLength(0, 21), BechWrongHrp("tb", "bc")]
+    for e in all
+        let m = e.message()
+        test.assert_eq(str.starts_with(m, "bech32: "), true)
+        test.assert_eq(str.contains(m, "\n"), false)
+    test.assert_eq(BechWrongVariant(1, 0).message(), "bech32: the checksum is bech32m, expected bech32")
+
+@test
+fn test_encode_refuses_an_empty_or_unprintable_prefix()
+    match bech32.encode("", [], Bech32)
+        Ok(_)  => test.fail("an empty prefix")
+        Err(e) => test.assert_eq(kind(e), "HrpEmpty")
+    match bech32.encode("a b", [], Bech32)
+        Ok(_)  => test.fail("a space in the prefix")
+        Err(e) => test.assert_eq(kind(e), "HrpBadCharacter")
+    match bech32.encode_unlimited("", [], Bech32m)
+        Ok(_)  => test.fail("an empty prefix")
+        Err(e) => test.assert_eq(kind(e), "HrpEmpty")
+    var buf = bytes.cursor_be(bytes.zeros(16))
+    match bech32.encode_into("", [], Bech32, buf)
+        Ok(_)  => test.fail("an empty prefix")
+        Err(e) => test.assert_eq(kind(e), "HrpEmpty")
+
+@test
+fn test_encode_into_writes_the_same_characters_as_encode()
+    var buf = bytes.cursor_be(bytes.zeros(8))
+    match bech32.encode_into("a", [], Bech32m, buf)
+        Ok(n)  =>
+            test.assert_eq(n, 8)
+            test.assert_eq(bytes.to_str(buf.finish()), "a1lqfn3a")
+        Err(e) => test.fail(e.message())
+
+@test
+fn test_decode_into_writes_the_values_and_refuses_a_short_buffer()
+    var buf = bytes.cursor_be(bytes.zeros(32))
+    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", buf)
+        Ok(r)  =>
+            test.assert_eq(r.values, 32)
+            // The data part is the charset in order, so the values are
+            // 0 to 31.
+            let got = buf.finish()
+            for i in 0..32
+                test.assert_eq(bytes.byte_at(got, i) ?? 99, i)
+        Err(e) => test.fail(e.message())
+    var small = bytes.cursor_be(bytes.zeros(3))
+    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", small)
+        Ok(_)  => test.fail("three bytes cannot hold 32 values")
+        Err(e) =>
+            match e
+                BechBufferTooSmall(need, have) =>
+                    test.assert_eq(need, 32)
+                    test.assert_eq(have, 3)
+                _                              => test.fail(e.message())
+
+@test
+fn test_decoded_len_refuses_what_has_no_shape()
+    match bech32.decoded_len("pzry9x0s0muk")
+        Ok(_)  => test.fail("no separator")
+        Err(e) => test.assert_eq(kind(e), "NoSeparator")
+    match bech32.decoded_len("1pzry9x0s0muk")
+        Ok(_)  => test.fail("empty prefix")
+        Err(e) => test.assert_eq(kind(e), "HrpEmpty")
+    match bech32.decoded_len("li1dgmt3")
+        Ok(_)  => test.fail("too short")
+        Err(e) => test.assert_eq(kind(e), "DataTooShort")
+
+@test
+fn test_data_to_bytes_names_a_value_above_thirty_one()
+    match bech32.data_to_bytes([0 as u8, 40 as u8])
+        Ok(_)  => test.fail("40 is not a five-bit value")
+        Err(e) =>
+            match e
+                BechValueOutOfRange(at, v) =>
+                    test.assert_eq(at, 1)
+                    test.assert_eq(v, 40)
+                _                          => test.fail(e.message())
+
+@test
+fn test_the_segwit_refusals_at_encode_and_in_the_script()
+    let prog = bytes.from_hex("751e76e8199196d454941c45d1b3a323f1433bd6") ?? bytes.zeros(0)
+    match bechsegwit.encode("bc", 17, prog)
+        Ok(_)  => test.fail("there is no version 17")
+        Err(e) => test.assert_eq(kind(e), "BadVersion")
+    match bechsegwit.script_pubkey(-1, prog)
+        Ok(_)  => test.fail("there is no version -1")
+        Err(e) => test.assert_eq(kind(e), "BadVersion")
+    match bechsegwit.script_pubkey(0, bytes.zeros(21))
+        Ok(_)  => test.fail("version 0 takes 20 or 32 bytes")
+        Err(e) => test.assert_eq(kind(e), "BadProgramLength")
+    var small = bytes.cursor_be(bytes.zeros(10))
+    match bechsegwit.encode_into("bc", 0, prog, small)
+        Ok(_)  => test.fail("ten bytes cannot hold 42")
+        Err(e) => test.assert_eq(kind(e), "BufferTooSmall")
+    var any = bytes.cursor_be(bytes.zeros(64))
+    match bechsegwit.encode_into("bc", 0, bytes.zeros(3), any)
+        Ok(_)  => test.fail("three bytes is not a version-0 program")
+        Err(e) => test.assert_eq(kind(e), "BadProgramLength")
+
+@test
+fn test_decode_for_ignores_the_case_of_the_prefix_it_is_given()
+    match bechsegwit.decode_for("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "BC")
+        Ok(a)  => test.assert_eq(a.hrp, "bc")
+        Err(e) => test.fail(e.message())
+    match bechsegwit.decode_for("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", "bc")
+        Ok(_)  => test.fail("bad checksum")
+        Err(e) => test.assert_eq(kind(e), "BadChecksum")
+
+@test
+fn test_the_core_edges()
+    test.assert_eq(bech32_core.variant_const(7), 1)
+    test.assert_eq(bech32_core.charset_at(32), 0)
+    test.assert_eq(bech32_core.charset_at(-1), 0)
+    test.assert_eq(bech32_core.checksum_value(bech32_core.start(), 6), 0)
+    test.assert_eq(bech32_core.checksum_value(bech32_core.start(), -1), 0)
+    // Every value maps to a character and back.
+    for v in 0..32
+        test.assert_eq(bech32_core.charset_index(bech32_core.charset_at(v)), v)
