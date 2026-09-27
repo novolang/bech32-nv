@@ -1,0 +1,64 @@
+// tests/alloc_probe.nv — a program that reaches every function in
+// `bech32_core` and `bechbits`, so the emitted LLVM can be read for a
+// call to the allocator.
+//
+// This is not a test.  `tests/alloc_scan.sh` builds it with `--opt=0`
+// and reads the IR.  At the default optimisation level the whole probe
+// inlines into `novo_main`, and no function would be left to attribute
+// an allocation to.
+//
+// Every function is called, because a function the probe never reaches
+// is one the linker drops and the scan never sees.  The `bech32` and
+// `bechsegwit` modules are not here: they allocate, which is what they
+// are for.  The numbers are printed rather than checked; the vector
+// suite owns correctness.
+
+use bech32_core
+use bechbits
+
+// The two bytes of BIP 350's version-16 program, held the way firmware
+// holds them.
+@value
+struct ProbeProgram
+    b: [u8; 2]
+
+fn probe_program() -> ProbeProgram
+    ProbeProgram { b: [0x75 as u8, 0x1e as u8] }
+
+fn main() [io]
+    let v32 = bech32_core.variant_bech32()
+    let v32m = bech32_core.variant_bech32m()
+    println("${bech32_core.variant_const(v32)} ${bech32_core.variant_const(v32m)}")
+    println("${bech32_core.checksum_len()} ${bech32_core.max_length()} ${bech32_core.separator()}")
+    println("${bech32_core.charset_at(7)} ${bech32_core.charset_index('Q')}")
+
+    var c = bech32_core.start()
+    c = bech32_core.feed(c, bech32_core.hrp_high('b'))
+    c = bech32_core.feed(c, bech32_core.hrp_high('c'))
+    c = bech32_core.feed(c, 0)
+    c = bech32_core.feed(c, bech32_core.hrp_low('b'))
+    c = bech32_core.feed(c, bech32_core.hrp_low('c'))
+    c = bech32_core.feed(c, 16)
+
+    let src = probe_program()
+    var conv = bechbits.to5()
+    for i in 0..2
+        let step = bechbits.feed(conv, src.b[i])
+        conv = step.conv
+        for k in 0..step.len
+            c = bech32_core.feed(c, step.out[k] as Int)
+    let tail = bechbits.finish_padded(conv)
+    for k in 0..tail.len
+        c = bech32_core.feed(c, tail.out[k] as Int)
+
+    let done = bech32_core.finish(c, v32m)
+    for i in 0..6
+        print("${bech32_core.charset_at(bech32_core.checksum_value(done, i))} ")
+    println("")
+    let res = bech32_core.residue(done)
+    println("${bech32_core.variant_of(res)} ${bech32_core.verify(done, v32m)}")
+
+    var back = bechbits.to8()
+    let one = bechbits.feed(back, 3 as u8)
+    back = one.conv
+    println("${bechbits.finish_exact(back).ok} ${bechbits.out_len(2, 8, 5, true)}")
