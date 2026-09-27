@@ -9,12 +9,6 @@ defines bech32m, a revision that changes one constant. This package
 implements both, and segwit addresses, which is the one application the
 specifications themselves define.
 
-**Status: NOT IMPLEMENTED — interface only.** Every function is declared
-with its full signature, but every body is a `todo()` that panics when
-called. The package is published so its design can be reviewed and
-depended on before it is implemented. Version 0.1.0 will be the first
-working release.
-
 ## What bech32 is
 
 A bech32 string has three parts. The **human-readable part**, or prefix,
@@ -93,10 +87,8 @@ fn main() [io]
         Err(e) => println(e.message())
 ```
 
-Build and test with `novo pkg build` and `novo test`. Today `novo test`
-fails on purpose: every test reaches a `not implemented: <module>.<fn>`
-panic. The tests are the specification the implementation will have to
-satisfy.
+The program prints `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`, then
+`bc 0 20`.
 
 ## What the package contains
 
@@ -104,7 +96,7 @@ satisfy.
 | --- | --- |
 | `bech32_core` | The BCH checksum as one integer fed five bits at a time, the charset both ways, the two variant constants, and the format's numbers. |
 | `bechbits` | The eight-to-five regrouping and its inverse, as a value the caller drives, with the padded and the exact way of ending it. |
-| `bech32` | Strings: encode and decode, the three rules that are about a whole string, the eleven named refusals, and the size arithmetic. |
+| `bech32` | Strings: encode and decode, the three rules that are about a whole string, the named refusals, and the size arithmetic. |
 | `bechsegwit` | Segwit addresses: the version-to-encoding rule, the program length rules, encode and decode, and the `scriptPubKey` bytes. |
 
 ## How to choose an entry point
@@ -156,23 +148,33 @@ microcontroller".
    enforce it, which is what BOLT 11 invoices need. A caller using them
    gives up the four-error guarantee, and the name says so at the call
    site.
-8. **Five-to-eight refuses a tail whose bits are set.** BIP 173 requires
-   the padding bits to be zero. Accepting them would let two different
-   strings decode to the same bytes. `bechbits.finish_exact` is that
-   rule, and `bechbits.finish_padded` is the eight-to-five one.
+8. **Five-to-eight refuses a tail of five bits or more, and a tail with
+   a bit set.** BIP 173 requires the padding to be at most four bits and
+   all zero; its invalid vectors "zero padding of more than 4 bits" and
+   "non-zero padding in 8-to-5 conversion" test the two rules. Accepting
+   either would let two different strings decode to the same bytes.
+   `bechbits.finish_exact` is that rule, and `bechbits.finish_padded` is
+   the eight-to-five one.
 9. **BIP 141 fixes the program length by version.** Version 0 is exactly
    20 bytes for a key hash or exactly 32 for a script hash. Versions 1
    to 16 take 2 to 40. `bechsegwit.check_program` answers it, and a
    version-0 string with a 21-byte program is well-formed bech32 and is
    not an address.
-10. **The network prefix is the caller's, and is not checked against a
+10. **A segwit address is checked in the order of BIP 350's reference
+    decoder.** The bech32 rules first, then an empty data part
+    (`BechNoWitnessVersion`), the padding, a program outside 2 to 40
+    bytes (`BechBadProgramLength`), a version above 16
+    (`BechBadVersion`), a version-0 length other than 20 or 32, and last
+    the variant the version requires (`BechWrongVariant`).
+11. **The network prefix is the caller's, and is not checked against a
     list.** `bechsegwit.decode` answers the prefix it found.
     `bechsegwit.decode_for` is the call for a program that accepts one
-    network, and it compares case-insensitively.
-11. **A decode answers the prefix as a range, not a string.**
+    network, and it compares case-insensitively. A different prefix is
+    `BechWrongHrp`.
+12. **A decode answers the prefix as a range, not a string.**
     `BechRead.hrp_start` and `hrp_end` index the string the caller
     already holds.
-12. **`bech32_core` reports through the value, not a `Result`.** It
+13. **`bech32_core` reports through the value, not a `Result`.** It
     answers integers and booleans, because a `@value` struct may not be
     a `Result` payload. `bech32` turns each case into one of its named
     refusals.
@@ -184,18 +186,22 @@ with no heap allocator, and the compiler checks that claim on every
 build. Here the claim covers `bech32_core` and `bechbits`. Both take and
 answer `Int` and `u8`, and neither holds a buffer.
 
-`tests/embedded_probe.nv` is that claim as a program that either builds
-or does not. It builds today:
+`tests/embedded_probe.nv` is that claim as a program:
 
 ```bash
-novo build --target=nrf52-qemu tests/embedded_probe.nv
+novo build --target=nrf52-qemu -o probe.elf tests/embedded_probe.nv
+qemu-system-arm -machine mps2-an386 -nographic -semihosting -kernel probe.elf
 ```
 
 The probe produces a Cortex-M4 executable that runs the checksum over
-the prefix `bc` and a twenty-byte program regrouped on the fly, reads
-the six checksum characters out, and verifies them again in the other
-direction. It builds and it is not run: every function it calls is a
-`todo()` today.
+the prefix `bc` and BIP 173's twenty-byte example program regrouped on
+the fly, compares the data and checksum characters with the published
+address, and verifies them again in the other direction. Under QEMU it
+prints `ok` for each of its five checks.
+
+`tests/alloc_scan.sh` reads the LLVM the compiler emits for
+`tests/alloc_probe.nv` and checks that none of the twenty-four
+functions of `bech32_core` and `bechbits` calls the allocator.
 
 The consumer for this is a hardware wallet. The device that signs a
 transaction is the device that must show the address on its own screen,
@@ -244,48 +250,27 @@ symbol at link time on a device, whether or not the firmware calls it.
 ## Tests
 
 ```bash
-novo test tests/bech32_tests.nv       # 51 tests
+novo test tests/bech32_tests.nv       # 70 tests
+bash tests/coverage.sh                # line coverage over src/
+bash tests/alloc_scan.sh              # the device half allocates nothing
 ```
 
-Every vector is from BIP 173 or BIP 350: the valid bech32 strings, the
-invalid ones with the reason each is invalid, the bech32m set, and the
-segwit addresses. The surface follows the `bech32` crate in Rust and the
-reference Python in BIP 173 itself.
+Every vector is copied from BIP 173 § "Test vectors" and BIP 350
+§ "Test vectors for Bech32m" and § "Test vectors for v0-v16 native
+segregated witness addresses": the valid bech32 and bech32m strings,
+the invalid ones, each asserted against the refusal its stated reason
+names, the valid segwit addresses with their `scriptPubKey`, and the
+invalid ones. The three BIP 173 segwit vectors at versions 1, 2 and 16
+are asserted to be refused, because BIP 350 moved those versions to
+bech32m.
 
-The suite asserts that the published valid vectors decode and that
-encoding reproduces them, that a prefix containing `1` finds the last
-separator, that either case alone means the same string and a mixture
-does not, that the two variants are told apart by the checksum rather
-than the prefix, that asking for the wrong variant is its own refusal,
-that each of the eleven refusals is raised by the vector that earns it,
-that the loop BIP 173 writes in prose produces the vector's checksum,
-that eight-to-five pads and five-to-eight refuses a set tail, that the
-version chooses the encoding, that BIP 141's program lengths are
-enforced, that the prefix is not checked against a list, and that the
-`scriptPubKey` is the version opcode and a push.
-
-The tests compile today and fail at run, each on the `not implemented`
-panic that is its body. That is the expected state of an interface
-release. They turn green one at a time as bodies land.
-
-## Implementation status
-
-| Item | Implemented |
-| --- | --- |
-| `bech32_core.variant_bech32`, `.variant_bech32m`, `.variant_const`, `.variant_of` | no |
-| `bech32_core.checksum_len`, `.max_length`, `.separator` | no |
-| `bech32_core.charset_at`, `.charset_index`, `.hrp_high`, `.hrp_low` | no |
-| `bech32_core.start`, `.feed`, `.finish`, `.checksum_value`, `.residue`, `.verify` | no |
-| `bechbits.to5`, `.to8`, `.feed`, `.finish_padded`, `.finish_exact`, `.out_len` | no |
-| `bech32.variant_code`, `.variant_from_code` | no |
-| `bech32.encoded_len`, `.decoded_len` | no |
-| `bech32.encode`, `.encode_unlimited`, `.encode_into` | no |
-| `bech32.decode_into`, `.decode_unlimited`, `.decode`, `.decode_variant`, `.is_valid` | no |
-| `bech32.bytes_to_data`, `.data_to_bytes` | no |
-| `bech32.BechError.message` | no |
-| `bechsegwit.variant_for`, `.check_program`, `.encoded_len` | no |
-| `bechsegwit.encode`, `.encode_into` | no |
-| `bechsegwit.decode`, `.decode_for`, `.is_address`, `.script_pubkey` | no |
+Beyond the vectors, the suite asserts that every valid string
+re-encodes to itself in lower case, that a prefix containing `1` finds
+the last separator, that either case alone means the same string and a
+mixture does not, that the loop BIP 173 writes in prose produces the
+vector's checksum, that the two regrouping directions end as the rules
+above say, that the version chooses the encoding, and that the writes
+into a caller's buffer happen only when the whole answer fits.
 
 ## Licence
 

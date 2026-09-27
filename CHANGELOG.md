@@ -4,6 +4,36 @@ Every published version, newest first. This file is on the publish
 allow-list, so it travels with the package: it is the only thing a
 consumer deciding whether to upgrade can read.
 
+## 0.1.0 — 2026-09-27
+
+The first implementation of the interface published as 0.0.1 and
+0.0.2: bech32 and bech32m strings, the eight-to-five regrouping, and
+segwit addresses, with every vector of BIP 173 and BIP 350 as the test
+suite.
+
+- `bech32_core` and `bechbits` carry `@tier(embedded)` on every
+  function and put nothing on the heap.  The charset is a `match` in
+  each direction rather than a list, because a list literal is a heap
+  allocation.  `tests/embedded_probe.nv` runs under QEMU and checks the
+  data and checksum characters of BIP 173's example address, and
+  `tests/alloc_scan.sh` reads the emitted LLVM for a call to the
+  allocator.
+- Breaking: `BechError` has four more variants, `BechNoWitnessVersion`,
+  `BechBadVersion(version)`, `BechBadProgramLength(version, len)` and
+  `BechWrongHrp(found, wanted)`.  The segwit refusals had no variant of
+  their own in the interface, and BIP 173's and BIP 350's invalid
+  address vectors each name one of them.  A `match` over `BechError`
+  needs the four arms.
+- Corrected: `bechbits.finish_exact` refuses a tail of five bits or more,
+  as BIP 173's `convertbits` does, and not only a tail of eight or more.
+  The interface's doc comment and one of its tests said eight, which
+  accepts BIP 350's invalid vector "zero padding of more than 4 bits".
+- Corrected test vectors: the bech32m string for the prefix `?` is
+  `?1v759aa`, and the mixed-case offset in `A12Uel5l` is 4.
+- `bechsegwit.decode` checks in the order of BIP 350's reference
+  decoder, so a string with two faults answers the same refusal the
+  reference reports.
+
 ## 0.0.2 — 2026-09-15
 
 README rewritten to the package README style guide (docs/writing-a-readme.md); no change to the interface.
