@@ -1,0 +1,33 @@
+// hostile_tests.nv — strings far longer than an address.
+
+use std.test
+use std.bytes
+use std.list
+use bech32
+use bechsegwit
+
+fn too_long(r: Result<BechData, BechError>) -> Bool
+    match r
+        Err(BechTooLong(_)) => true
+        _                   => false
+
+@test
+fn test_long_strings_are_refused() [io]
+    test.assert(too_long(bech32.decode("bc1" + "q".repeat(300000))))
+    test.assert(too_long(bech32.decode("1".repeat(300000))))
+    test.assert(too_long(bech32.decode("a".repeat(300000) + "1qqqqqq")))
+    test.case("a long segwit address")
+    match bechsegwit.decode("bc1" + "q".repeat(300000))
+        Err(BechTooLong(_)) => test.assert(true)
+        _                   => test.assert(false)
+
+@test
+fn test_the_unlimited_form_round_trips_a_long_string() [io]
+    let values: [u8] = list.zeros(200000)
+    match bech32.encode_unlimited("a", values, Bech32m)
+        Err(_)   => test.assert(false)
+        Ok(text) =>
+            var buf = bytes.cursor_be(bytes.zeros(300000))
+            match bech32.decode_unlimited(text, buf)
+                Ok(r)  => test.assert(r.values == 200000)
+                Err(_) => test.assert(false)

@@ -142,6 +142,7 @@ pub struct BechData
 impl Error for BechError
     // Answer the one-line report: what was wrong, and at what character
     // offset when there is one.
+    @tier(app)
     fn message(self) -> Str
         match self
             BechMixedCase(at)                  => "bech32: upper and lower case mixed, at offset ${at}"
@@ -212,6 +213,7 @@ pub fn encoded_len(hrp_len: Int, data_len: Int) -> Int
     hrp_len + 1 + data_len + bech32_core.checksum_len()
 
 // The offset of the last `1` in `s`, or -1 when there is none.
+@tier(app)
 fn last_separator(s: Str) -> Int
     var i = str.len(s) - 1
     while i >= 0
@@ -226,7 +228,8 @@ fn last_separator(s: Str) -> Int
 // answers `Ok` for a string whose characters turn out to be invalid.  A
 // caller sizing a destination wants the number, and a caller validating
 // wants `decode_into`.
-pub fn decoded_len(s: Str) -> Result<Int, BechError>
+pub @tier(app)
+fn decoded_len(s: Str) -> Result<Int, BechError>
     let sep = last_separator(s)
     if sep < 0
         return Err(BechNoSeparator)
@@ -266,6 +269,7 @@ fn feed_hrp(hrp: Str) -> BechChk
     c
 
 // The first reason `hrp` and `data` cannot be encoded, or `None`.
+@tier(app)
 fn encode_fault(hrp: Str, data: [u8], limited: Bool) -> ?BechError
     let n = str.len(hrp)
     if n == 0
@@ -285,6 +289,7 @@ fn encode_fault(hrp: Str, data: [u8], limited: Bool) -> ?BechError
 
 // The ASCII bytes of the encoded string, which `encode_fault` has
 // already accepted.
+@tier(app)
 fn encode_bytes(hrp: Str, data: [u8], v: BechVariant) -> Bytes
     let n = str.len(hrp)
     var out = bytes.zeros(encoded_len(n, data.len()))
@@ -322,7 +327,8 @@ fn encode_bytes(hrp: Str, data: [u8], v: BechVariant) -> Bytes
 //         Ok(s)  => println(s)   // a12uel5l
 //         Err(e) => println(e.message())
 // ```
-pub fn encode(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
+pub @tier(app)
+fn encode(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
     match encode_fault(hrp, data, true)
         Some(e) => Err(e)
         None    => Ok(bytes.to_str(encode_bytes(hrp, data, v)))
@@ -332,7 +338,8 @@ pub fn encode(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
 // For BOLT 11 lightning invoices and other uses that lift the limit.
 // Past 90 characters BIP 173's guarantee that up to four character
 // errors are detected no longer holds.
-pub fn encode_unlimited(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
+pub @tier(app)
+fn encode_unlimited(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, BechError>
     match encode_fault(hrp, data, false)
         Some(e) => Err(e)
         None    => Ok(bytes.to_str(encode_bytes(hrp, data, v)))
@@ -345,7 +352,8 @@ pub fn encode_unlimited(hrp: Str, data: [u8], v: BechVariant) -> Result<Str, Bec
 // partially encoded buffer looks like an address.
 //
 // The 90-character limit applies, as it does to `encode`.
-pub fn encode_into(hrp: Str, data: [u8], v: BechVariant, var dst: Cursor) -> Result<Int, BechError>
+pub @tier(app)
+fn encode_into(hrp: Str, data: [u8], v: BechVariant, var dst: Cursor) -> Result<Int, BechError>
     match encode_fault(hrp, data, true)
         Some(e) => Err(e)
         None    =>
@@ -380,6 +388,7 @@ fn mixed_case_at(s: Str) -> Int
 // Every whole-string and per-character rule, and the checksum, without
 // writing anything.  The answer is the separator's offset and the
 // variant code.
+@tier(app)
 fn check(s: Str, limited: Bool) -> Result<(Int, Int), BechError>
     let at = mixed_case_at(s)
     if at >= 0
@@ -414,6 +423,7 @@ fn check(s: Str, limited: Bool) -> Result<(Int, Int), BechError>
     Ok((sep, found))
 
 // The shared body of `decode_into` and `decode_unlimited`.
+@tier(app)
 fn decode_to(s: Str, limited: Bool, var dst: Cursor) -> Result<BechRead, BechError>
     let (sep, found) = check(s, limited)!
     let values = str.len(s) - sep - 1 - bech32_core.checksum_len()
@@ -447,11 +457,13 @@ fn decode_to(s: Str, limited: Bool, var dst: Cursor) -> Result<BechRead, BechErr
 //         Ok(r)  => println("${r.hrp_start} ${r.hrp_end} ${r.values}")   // 0 1 0
 //         Err(e) => println(e.message())
 // ```
-pub fn decode_into(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
+pub @tier(app)
+fn decode_into(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
     decode_to(s, true, dst)
 
 // The same, with the 90-character limit not enforced.
-pub fn decode_unlimited(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
+pub @tier(app)
+fn decode_unlimited(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
     decode_to(s, false, dst)
 
 // Decode `s` into a fresh prefix and a fresh list of values.
@@ -468,7 +480,8 @@ pub fn decode_unlimited(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
 //         Ok(d)  => println("${d.hrp} ${d.data.len()}")   // abcdef 32
 //         Err(e) => println(e.message())
 // ```
-pub fn decode(s: Str) -> Result<BechData, BechError>
+pub @tier(app)
+fn decode(s: Str) -> Result<BechData, BechError>
     let (sep, found) = check(s, true)!
     let values = str.len(s) - sep - 1 - bech32_core.checksum_len()
     var data: [u8] = []
@@ -481,7 +494,8 @@ pub fn decode(s: Str) -> Result<BechData, BechError>
 //
 // `BechWrongVariant` when the string is valid for the other variant,
 // which is a different refusal from a bad checksum.
-pub fn decode_variant(s: Str, want: BechVariant) -> Result<BechData, BechError>
+pub @tier(app)
+fn decode_variant(s: Str, want: BechVariant) -> Result<BechData, BechError>
     let d = decode(s)!
     let found = variant_code(d.variant)
     if found != variant_code(want)
@@ -489,7 +503,8 @@ pub fn decode_variant(s: Str, want: BechVariant) -> Result<BechData, BechError>
     Ok(d)
 
 // True when `s` decodes under either variant.
-pub fn is_valid(s: Str) -> Bool
+pub @tier(app)
+fn is_valid(s: Str) -> Bool
     match check(s, true)
         Ok(_)  => true
         Err(_) => false
@@ -510,7 +525,8 @@ pub fn is_valid(s: Str) -> Bool
 //     // Eight bits regroup into two five-bit values, the second padded.
 //     println("${bech32.bytes_to_data(one).len()}")   // 2
 // ```
-pub fn bytes_to_data(b: Bytes) -> [u8]
+pub @tier(app)
+fn bytes_to_data(b: Bytes) -> [u8]
     var out: [u8] = []
     var c = bechbits.to5()
     for i in 0..bytes.len(b)
@@ -528,7 +544,8 @@ pub fn bytes_to_data(b: Bytes) -> [u8]
 // `BechValueOutOfRange` names the first value above 31, and
 // `BechBadPadding` is the answer when the tail is five bits or longer
 // or has any bit set.
-pub fn data_to_bytes(data: [u8]) -> Result<Bytes, BechError>
+pub @tier(app)
+fn data_to_bytes(data: [u8]) -> Result<Bytes, BechError>
     for i in 0..data.len()
         let v = data[i] as Int
         if v > 31

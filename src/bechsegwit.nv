@@ -98,6 +98,7 @@ pub fn encoded_len(hrp_len: Int, program_len: Int) -> Int
 
 // The version and the program as bech32 data values, after checking
 // that the pair is an address.
+@tier(app)
 fn address_data(version: Int, program: Bytes) -> Result<[u8], BechError>
     if version < 0 or version > 16
         return Err(BechBadVersion(version))
@@ -125,7 +126,8 @@ fn address_data(version: Int, program: Bytes) -> Result<[u8], BechError>
 //         Err(e) => println(e.message())
 //     // bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4
 // ```
-pub fn encode(hrp: Str, version: Int, program: Bytes) -> Result<Str, BechError>
+pub @tier(app)
+fn encode(hrp: Str, version: Int, program: Bytes) -> Result<Str, BechError>
     let data = address_data(version, program)!
     bech32.encode(hrp, data, bech32.variant_from_code(variant_for(version)))
 
@@ -133,8 +135,8 @@ pub fn encode(hrp: Str, version: Int, program: Bytes) -> Result<Str, BechError>
 //
 // `BechBufferTooSmall` when the cursor has less room than `encoded_len`
 // says, and nothing is written in that case.
-pub fn encode_into(hrp: Str, version: Int, program: Bytes,
-                   var dst: Cursor) -> Result<Int, BechError>
+pub @tier(app)
+fn encode_into(hrp: Str, version: Int, program: Bytes, var dst: Cursor) -> Result<Int, BechError>
     let data = address_data(version, program)!
     bech32.encode_into(hrp, data, bech32.variant_from_code(variant_for(version)), dst)
 
@@ -161,7 +163,8 @@ pub fn encode_into(hrp: Str, version: Int, program: Bytes,
 //         Ok(a)  => println("${a.hrp} ${a.version} ${bytes.len(a.program)}")   // bc 0 20
 //         Err(e) => println(e.message())
 // ```
-pub fn decode(s: Str) -> Result<BechSegwit, BechError>
+pub @tier(app)
+fn decode(s: Str) -> Result<BechSegwit, BechError>
     let d = bech32.decode(s)!
     if d.data.len() == 0
         return Err(BechNoWitnessVersion)
@@ -185,7 +188,8 @@ pub fn decode(s: Str) -> Result<BechSegwit, BechError>
 // network that should not accept a test-network address.  The
 // comparison ignores case, because an address may be printed in upper
 // case.
-pub fn decode_for(s: Str, hrp: Str) -> Result<BechSegwit, BechError>
+pub @tier(app)
+fn decode_for(s: Str, hrp: Str) -> Result<BechSegwit, BechError>
     let a = decode(s)!
     let wanted = str.lower(hrp)
     if a.hrp != wanted
@@ -193,7 +197,8 @@ pub fn decode_for(s: Str, hrp: Str) -> Result<BechSegwit, BechError>
     Ok(a)
 
 // True when `s` is a segwit address under any prefix.
-pub fn is_address(s: Str) -> Bool
+pub @tier(app)
+fn is_address(s: Str) -> Bool
     match decode(s)
         Ok(_)  => true
         Err(_) => false
@@ -216,7 +221,8 @@ pub fn is_address(s: Str) -> Bool
 //         Err(e) => println(e.message())
 //     // 0014751e76e8199196d454941c45d1b3a323f1433bd6
 // ```
-pub fn script_pubkey(version: Int, program: Bytes) -> Result<Bytes, BechError>
+pub @tier(app)
+fn script_pubkey(version: Int, program: Bytes) -> Result<Bytes, BechError>
     if version < 0 or version > 16
         return Err(BechBadVersion(version))
     let n = bytes.len(program)
