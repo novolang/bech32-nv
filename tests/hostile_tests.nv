@@ -28,6 +28,6 @@ fn test_the_unlimited_form_round_trips_a_long_string() [io]
         Err(_)   => test.assert(false)
         Ok(text) =>
             var buf = bytes.cursor_be(bytes.zeros(300000))
-            match bech32.decode_unlimited(text, buf)
+            match bech32.decode_unlimited(text, var buf)
                 Ok(r)  => test.assert(r.values == 200000)
                 Err(_) => test.assert(false)

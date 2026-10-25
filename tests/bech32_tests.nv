@@ -120,7 +120,7 @@ fn test_the_limit_is_lifted_by_a_differently_named_call_and_not_by_a_flag()
     // separate name is so that choice appears at the call site.
     let s = "an84characterslonghumanreadablepartthatcontainsthenumber1andtheexcludedcharactersbio1569pvx"
     var buf = bytes.cursor_be(bytes.zeros(128))
-    match bech32.decode_unlimited(s, buf)
+    match bech32.decode_unlimited(s, var buf)
         Ok(r)  => test.assert_eq(r.hrp_start, 0)
         Err(e) => test.fail(e.message())
     // And the encode side of the same pair: an 84-character prefix is
@@ -259,7 +259,7 @@ fn test_encode_into_writes_nothing_when_the_buffer_is_short()
     // A partially encoded buffer is worse than none, because it looks
     // like an address.
     var small = bytes.cursor_be(bytes.zeros(4))
-    match bech32.encode_into("a", [], Bech32, small)
+    match bech32.encode_into("a", [], Bech32, var small)
         Ok(_)  => test.fail("four bytes cannot hold an eight-character string")
         Err(e) =>
             match e
@@ -273,7 +273,7 @@ fn test_decode_into_answers_the_prefix_as_a_range_into_the_caller_s_string()
     // Not as a `Str`: the caller already has the bytes, and a copy
     // would be an allocation a device does not have.
     var buf = bytes.cursor_be(bytes.zeros(64))
-    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", buf)
+    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", var buf)
         Ok(r)  =>
             test.assert_eq(r.hrp_start, 0)
             test.assert_eq(r.hrp_end, 6)
@@ -562,7 +562,7 @@ fn test_the_segwit_size_arithmetic()
 fn test_encode_into_writes_an_address_into_a_buffer_the_caller_owns()
     let prog = bytes.from_hex("751e76e8199196d454941c45d1b3a323f1433bd6") ?? bytes.zeros(0)
     var buf = bytes.cursor_be(bytes.zeros(64))
-    match bechsegwit.encode_into("bc", 0, prog, buf)
+    match bechsegwit.encode_into("bc", 0, prog, var buf)
         Ok(n)  => test.assert_eq(n, 42)
         Err(e) => test.fail(e.message())
 
@@ -826,14 +826,14 @@ fn test_encode_refuses_an_empty_or_unprintable_prefix()
         Ok(_)  => test.fail("an empty prefix")
         Err(e) => test.assert_eq(kind(e), "HrpEmpty")
     var buf = bytes.cursor_be(bytes.zeros(16))
-    match bech32.encode_into("", [], Bech32, buf)
+    match bech32.encode_into("", [], Bech32, var buf)
         Ok(_)  => test.fail("an empty prefix")
         Err(e) => test.assert_eq(kind(e), "HrpEmpty")
 
 @test
 fn test_encode_into_writes_the_same_characters_as_encode()
     var buf = bytes.cursor_be(bytes.zeros(8))
-    match bech32.encode_into("a", [], Bech32m, buf)
+    match bech32.encode_into("a", [], Bech32m, var buf)
         Ok(n)  =>
             test.assert_eq(n, 8)
             test.assert_eq(bytes.to_str(buf.finish()), "a1lqfn3a")
@@ -842,7 +842,7 @@ fn test_encode_into_writes_the_same_characters_as_encode()
 @test
 fn test_decode_into_writes_the_values_and_refuses_a_short_buffer()
     var buf = bytes.cursor_be(bytes.zeros(32))
-    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", buf)
+    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", var buf)
         Ok(r)  =>
             test.assert_eq(r.values, 32)
             // The data part is the charset in order, so the values are
@@ -852,7 +852,7 @@ fn test_decode_into_writes_the_values_and_refuses_a_short_buffer()
                 test.assert_eq(bytes.byte_at(got, i) ?? 99, i)
         Err(e) => test.fail(e.message())
     var small = bytes.cursor_be(bytes.zeros(3))
-    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", small)
+    match bech32.decode_into("abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", var small)
         Ok(_)  => test.fail("three bytes cannot hold 32 values")
         Err(e) =>
             match e
@@ -897,11 +897,11 @@ fn test_the_segwit_refusals_at_encode_and_in_the_script()
         Ok(_)  => test.fail("version 0 takes 20 or 32 bytes")
         Err(e) => test.assert_eq(kind(e), "BadProgramLength")
     var small = bytes.cursor_be(bytes.zeros(10))
-    match bechsegwit.encode_into("bc", 0, prog, small)
+    match bechsegwit.encode_into("bc", 0, prog, var small)
         Ok(_)  => test.fail("ten bytes cannot hold 42")
         Err(e) => test.assert_eq(kind(e), "BufferTooSmall")
     var any = bytes.cursor_be(bytes.zeros(64))
-    match bechsegwit.encode_into("bc", 0, bytes.zeros(3), any)
+    match bechsegwit.encode_into("bc", 0, bytes.zeros(3), var any)
         Ok(_)  => test.fail("three bytes is not a version-0 program")
         Err(e) => test.assert_eq(kind(e), "BadProgramLength")
 

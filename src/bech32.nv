@@ -459,12 +459,12 @@ fn decode_to(s: Str, limited: Bool, var dst: Cursor) -> Result<BechRead, BechErr
 // ```
 pub @tier(app)
 fn decode_into(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
-    decode_to(s, true, dst)
+    decode_to(s, true, var dst)
 
 // The same, with the 90-character limit not enforced.
 pub @tier(app)
 fn decode_unlimited(s: Str, var dst: Cursor) -> Result<BechRead, BechError>
-    decode_to(s, false, dst)
+    decode_to(s, false, var dst)
 
 // Decode `s` into a fresh prefix and a fresh list of values.
 //

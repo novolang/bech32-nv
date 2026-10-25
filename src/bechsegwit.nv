@@ -138,7 +138,7 @@ fn encode(hrp: Str, version: Int, program: Bytes) -> Result<Str, BechError>
 pub @tier(app)
 fn encode_into(hrp: Str, version: Int, program: Bytes, var dst: Cursor) -> Result<Int, BechError>
     let data = address_data(version, program)!
-    bech32.encode_into(hrp, data, bech32.variant_from_code(variant_for(version)), dst)
+    bech32.encode_into(hrp, data, bech32.variant_from_code(variant_for(version)), var dst)
 
 // The network, version and program `s` names.
 //
